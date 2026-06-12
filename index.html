@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="google-site-verification" content="jjM0-yhpH3z17_a3F6Dc4mmCanebiDxJ3noOOb3zsXQ" />
 <title>Cornix Typing — キーマップ連動タイピング練習</title>
 <style>
   :root {
@@ -912,7 +913,6 @@ function paintHint(hint) {
 /* ---------- 5. WebHID (Vial/VIA protocol) + .vil import ---------- */
 
 const CMD_GET_LAYER_COUNT = 0x11, CMD_GET_BUFFER = 0x12;
-let hidDevice = null;
 
 function hidCmd(dev, bytes) {
   const data = new Uint8Array(32);
@@ -944,14 +944,14 @@ async function connectHID() {
     st.textContent = "このブラウザはWebHID非対応です。Chrome/Edgeを使うか .vil を読み込んでください";
     return;
   }
+  let dev = null;
   try {
     const devs = await navigator.hid.requestDevice({
       filters: [{ usagePage: 0xFF60, usage: 0x61 }]
     });
     if (!devs.length) return;
-    const dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
+    dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
     if (!dev.opened) await dev.open();
-    hidDevice = dev;
     st.className = ""; st.textContent = "読み取り中…";
 
     let layerCount = 4;
@@ -985,6 +985,10 @@ async function connectHID() {
   } catch (err) {
     st.className = "err";
     st.textContent = "読み取り失敗: " + err.message + "（USB接続を確認するか .vil を読み込んでください）";
+  } finally {
+    // release the raw-HID interface right away — only one app can hold it,
+    // and keeping it open blocks Vial from connecting to the keyboard
+    if (dev && dev.opened) { try { await dev.close(); } catch (e) {} }
   }
 }
 
