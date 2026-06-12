@@ -937,6 +937,7 @@ function hidCmd(dev, bytes) {
 }
 
 async function connectHID() {
+  if (engine.running) engine.idle();          // reading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   if (!navigator.hid) {
     st.className = "err";
@@ -988,6 +989,7 @@ async function connectHID() {
 }
 
 function loadVilText(text, name) {
+  if (engine.running) engine.idle();          // loading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   try {
     const data = JSON.parse(text);
@@ -1309,7 +1311,7 @@ const engine = {
     this.running = false;
     this.items = []; this.hint = null;
     clearHighlights();
-    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でやりなおし）</span>';
+    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でこの画面に戻る）</span>';
     $("wordMeta").textContent = ""; $("queue").textContent = ""; $("hint").innerHTML = "";
     $("stTime").textContent = runSeconds.toFixed(1); $("stTime").classList.remove("low");
     $("stWpm").textContent = 0; $("stAcc").textContent = "100%";
@@ -1541,8 +1543,8 @@ function escapeHtml(s) {
 document.addEventListener("keydown", e => {
   if ($("resultDlg").open) return;            // Esc closes the dialog natively
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "Escape") {                   // Esc during a run = restart from scratch
-    if (engine.running) { e.preventDefault(); engine.start(); }
+  if (e.key === "Escape") {                   // Esc during a run = back to the pre-start menu
+    if (engine.running) { e.preventDefault(); engine.idle(); }
     return;
   }
   if (!engine.running) {                      // Space / Enter starts a run
@@ -1577,7 +1579,7 @@ document.querySelectorAll(".times button").forEach(b =>
   b.classList.toggle("active", +b.dataset.time === runSeconds));
 
 $("btnStart").addEventListener("click", () => engine.start());
-$("btnRestart").addEventListener("click", () => engine.start());
+$("btnRestart").addEventListener("click", () => engine.idle());
 $("btnAgain").addEventListener("click", () => { $("resultDlg").close(); engine.start(); });
 $("btnSound").addEventListener("click", () => {
   soundOn = !soundOn;
