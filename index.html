@@ -333,7 +333,49 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .result-grid span { font-size: 11px; color: var(--dim); }
-  @media (max-width: 640px) { .result-grid { grid-template-columns: repeat(3, 1fr); } }
+  /* ===== スマホ向けレスポンシブ ===== */
+  @media (max-width: 640px) {
+    body { padding: 10px 8px 32px; }
+    header { gap: 8px; margin-bottom: 10px; }
+    header h1 { font-size: 18px; }
+    header .sub { display: none; }                 /* 説明文は省スペースのため非表示 */
+    #status { order: 5; width: 100%; text-align: center; }
+    header button { flex: 1 1 40%; font-size: 12px; padding: 8px 10px; }
+
+    .panel { padding: 12px; border-radius: 16px; margin-bottom: 12px; }
+    .toolbar { gap: 10px 14px; align-items: flex-start; }
+    .ctrl-group.settings { margin-left: 0; }        /* 自然に折り返す */
+    .ctrl-label { font-size: 10px; }
+    .modes button, .times button { padding: 5px 9px; font-size: 11px; }
+
+    .statbar { gap: 6px 16px; margin-bottom: 12px; }
+    .statbar .stat .lbl { font-size: 10px; }
+    .statbar .stat b { font-size: 22px; }
+    .statbar .stat.time b { font-size: 26px; }
+
+    #wordMeta { min-height: 36px; }
+    #wordMeta .jp { font-size: 26px; }
+    #typeline { font-size: 25px; padding: 12px 6px; }
+    #typeline .start-prompt { font-size: 21px; padding: 12px 30px; }
+    #typeline .countdown { font-size: 52px; }
+    #typeline.idle { padding: 16px 6px; }
+
+    .legend { gap: 8px 12px; font-size: 11px; }
+    .kb-head .title { font-size: 12px; }
+
+    dialog { padding: 18px 16px; border-radius: 18px; }
+    .score-hero { gap: 12px; }
+    .score-hero .rank { width: 52px; height: 52px; font-size: 28px; }
+    .score-hero .num { font-size: 44px; }
+    .result-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .result-grid b { font-size: 20px; }
+  }
+  @media (max-width: 380px) {
+    .statbar { gap: 4px 12px; }
+    .statbar .stat b { font-size: 19px; }
+    .statbar .stat.time b { font-size: 22px; }
+    #typeline { font-size: 22px; }
+  }
 </style>
 </head>
 <body>
@@ -344,6 +386,7 @@
   <div id="status">キーマップ未読込（サンプル表示中）</div>
   <button id="btnConnect" class="primary">🔌 Cornixから読み取る</button>
   <button id="btnVil">📄 .vilを開く</button>
+  <button id="btnForget" title="保存したレイアウトを消してサンプル表示に戻す" hidden>🗑 保存を消す</button>
   <input type="file" id="vilFile" accept=".vil,application/json" hidden>
 </header>
 
@@ -723,15 +766,58 @@ const SHIFTED_ALIAS = {
   KC_PIPE: "LSFT(KC_BSLS)", KC_COLN: "LSFT(KC_SCLN)", KC_DQUO: "LSFT(KC_QUOT)",
   KC_LABK: "LSFT(KC_COMM)", KC_RABK: "LSFT(KC_DOT)", KC_QUES: "LSFT(KC_SLSH)"
 };
-function setKeymap(layers, source, label) {
-  KB.layers = layers; KB.layerCount = layers.length; KB.source = source;
+const KEYMAP_STORE_KEY = "cornixKeymap";
+
+function setKeymap(layers, source, label, restored) {
+  KB.layers = layers; KB.layerCount = layers.length; KB.source = source; KB.label = label || "";
   charCache.clear();
   buildLayerTabs();
   setViewLayer(0);
   const st = document.getElementById("status");
   if (source === "sample") { st.className = ""; st.textContent = "キーマップ未読込（サンプル表示中）"; }
-  else { st.className = "ok"; st.textContent = "✓ " + label + "（" + layers.length + "レイヤー）"; }
+  else {
+    st.className = "ok";
+    st.textContent = "✓ " + label + "（" + layers.length + "レイヤー）" + (restored ? " · 前回のキーマップを復元" : "");
+    // 実際に読み込んだレイアウトはブラウザに保存し、次回自動復元する
+    if (!restored) saveKeymap(layers, source, label);
+  }
+  updateForgetBtn();
   engine && engine.refreshHint();
+}
+
+// 直近のレイアウトをlocalStorageへ保存
+function saveKeymap(layers, source, label) {
+  try {
+    localStorage.setItem(KEYMAP_STORE_KEY, JSON.stringify({ v: 1, source, label, layers }));
+  } catch (e) { /* 保存不可(容量超過/プライベートモード等)は無視 */ }
+}
+
+// 保存済みレイアウトを復元（成功時true）
+function restoreSavedKeymap() {
+  try {
+    const raw = localStorage.getItem(KEYMAP_STORE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.layers) || !d.layers.length) return false;
+    setKeymap(d.layers, d.source || "vil", d.label || "保存済みレイアウト", true);
+    return true;
+  } catch (e) { return false; }
+}
+
+// 保存済みレイアウトを破棄してサンプルに戻す
+function forgetSavedKeymap() {
+  try { localStorage.removeItem(KEYMAP_STORE_KEY); } catch (e) {}
+  loadSample();
+  updateForgetBtn();
+}
+
+// 「保存を消す」ボタンは保存済みレイアウトがあるときだけ表示
+function updateForgetBtn() {
+  const b = document.getElementById("btnForget");
+  if (!b) return;
+  let has = false;
+  try { has = !!localStorage.getItem(KEYMAP_STORE_KEY); } catch (e) {}
+  b.hidden = !has;
 }
 
 function loadSample() {
@@ -886,7 +972,7 @@ function renderKeyboard() {
   // キーボード全体がコンテナ幅に収まるようユニット(--u)を動的計算（最大52px）
   const spanX = (maxX - minX + pad * 2);
   const avail = (kbEl.parentElement && kbEl.parentElement.clientWidth) || 1000;
-  const U = Math.max(18, Math.min(52, avail / spanX));
+  const U = Math.max(14, Math.min(52, avail / spanX));
   document.documentElement.style.setProperty("--u", U + "px");
   kbEl.style.width = (maxX - minX + pad * 2) * U + "px";
   kbEl.style.height = (maxY - minY + pad * 2) * U + "px";
@@ -1089,6 +1175,7 @@ function loadVilText(text, name) {
   }
 }
 
+document.getElementById("btnForget").addEventListener("click", forgetSavedKeymap);
 document.getElementById("btnConnect").addEventListener("click", connectHID);
 document.getElementById("btnVil").addEventListener("click", () =>
   document.getElementById("vilFile").click());
@@ -1699,7 +1786,7 @@ $("btnSound").addEventListener("click", () => {
 
 /* ---------- startup ---------- */
 renderKeyboard();
-loadSample();
+if (!restoreSavedKeymap()) loadSample();   // 前回のレイアウトがあれば自動復元
 updateSoundBtn();
 engine.idle();
 
