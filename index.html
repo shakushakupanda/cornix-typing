@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="google-site-verification" content="jjM0-yhpH3z17_a3F6Dc4mmCanebiDxJ3noOOb3zsXQ" />
 <title>Cornix Typing — キーマップ連動タイピング練習</title>
 <style>
   :root {
@@ -913,6 +912,7 @@ function paintHint(hint) {
 /* ---------- 5. WebHID (Vial/VIA protocol) + .vil import ---------- */
 
 const CMD_GET_LAYER_COUNT = 0x11, CMD_GET_BUFFER = 0x12;
+let hidDevice = null;
 
 function hidCmd(dev, bytes) {
   const data = new Uint8Array(32);
@@ -937,21 +937,20 @@ function hidCmd(dev, bytes) {
 }
 
 async function connectHID() {
-  if (engine.running) engine.idle();          // reading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   if (!navigator.hid) {
     st.className = "err";
     st.textContent = "このブラウザはWebHID非対応です。Chrome/Edgeを使うか .vil を読み込んでください";
     return;
   }
-  let dev = null;
   try {
     const devs = await navigator.hid.requestDevice({
       filters: [{ usagePage: 0xFF60, usage: 0x61 }]
     });
     if (!devs.length) return;
-    dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
+    const dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
     if (!dev.opened) await dev.open();
+    hidDevice = dev;
     st.className = ""; st.textContent = "読み取り中…";
 
     let layerCount = 4;
@@ -985,15 +984,10 @@ async function connectHID() {
   } catch (err) {
     st.className = "err";
     st.textContent = "読み取り失敗: " + err.message + "（USB接続を確認するか .vil を読み込んでください）";
-  } finally {
-    // release the raw-HID interface right away — only one app can hold it,
-    // and keeping it open blocks Vial from connecting to the keyboard
-    if (dev && dev.opened) { try { await dev.close(); } catch (e) {} }
   }
 }
 
 function loadVilText(text, name) {
-  if (engine.running) engine.idle();          // loading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   try {
     const data = JSON.parse(text);
@@ -1315,7 +1309,7 @@ const engine = {
     this.running = false;
     this.items = []; this.hint = null;
     clearHighlights();
-    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でこの画面に戻る）</span>';
+    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でやりなおし）</span>';
     $("wordMeta").textContent = ""; $("queue").textContent = ""; $("hint").innerHTML = "";
     $("stTime").textContent = runSeconds.toFixed(1); $("stTime").classList.remove("low");
     $("stWpm").textContent = 0; $("stAcc").textContent = "100%";
@@ -1547,8 +1541,8 @@ function escapeHtml(s) {
 document.addEventListener("keydown", e => {
   if ($("resultDlg").open) return;            // Esc closes the dialog natively
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "Escape") {                   // Esc during a run = back to the pre-start menu
-    if (engine.running) { e.preventDefault(); engine.idle(); }
+  if (e.key === "Escape") {                   // Esc during a run = restart from scratch
+    if (engine.running) { e.preventDefault(); engine.start(); }
     return;
   }
   if (!engine.running) {                      // Space / Enter starts a run
@@ -1583,7 +1577,7 @@ document.querySelectorAll(".times button").forEach(b =>
   b.classList.toggle("active", +b.dataset.time === runSeconds));
 
 $("btnStart").addEventListener("click", () => engine.start());
-$("btnRestart").addEventListener("click", () => engine.idle());
+$("btnRestart").addEventListener("click", () => engine.start());
 $("btnAgain").addEventListener("click", () => { $("resultDlg").close(); engine.start(); });
 $("btnSound").addEventListener("click", () => {
   soundOn = !soundOn;
