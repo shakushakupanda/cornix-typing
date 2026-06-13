@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="google-site-verification" content="jjM0-yhpH3z17_a3F6Dc4mmCanebiDxJ3noOOb3zsXQ" />
 <title>Cornix Typing — キーマップ連動タイピング練習</title>
 <style>
   :root {
@@ -195,6 +196,8 @@
     white-space: pre-line;
     transition: background .1s, border-color .1s;
   }
+  .key.sm { font-size: calc(var(--u) * .20); }   /* 少し長いラベル (例: Ctrl+A) */
+  .key.xs { font-size: calc(var(--u) * .155); }  /* 長いラベル (例: Sft+GUI+3) */
   .key .sub { position: absolute; top: 1px; right: 4px; font-size: calc(var(--u) * .17); color: #c79fe0; font-weight: 700; }
   .key.dim { color: #cdc4d8; }
   .key.hl-target {
@@ -457,7 +460,7 @@ const HID_CHARS = {};
     0x31: ["\\", "|"], 0x32: ["#", "~"], 0x33: [";", ":"], 0x34: ["'", '"'],
     0x35: ["`", "~"], 0x36: [",", "<"], 0x37: [".", ">"], 0x38: ["/", "?"],
     0x54: ["/", "/"], 0x55: ["*", "*"], 0x56: ["-", "-"], 0x57: ["+", "+"],
-    0x58: ["\n", "\n"], 0x63: [".", "."]
+    0x58: ["\n", "\n"], 0x63: [".", "."], 0x67: ["=", "="]
   });
   const kp = "1234567890";
   for (let i = 0; i < 10; i++) HID_CHARS[0x59 + i] = [kp[i], kp[i]];
@@ -472,7 +475,8 @@ const KEYLABELS = {
   0xE0: "Ctrl", 0xE1: "Shift", 0xE2: "Alt", 0xE3: "GUI",
   0xE4: "Ctrl", 0xE5: "Shift", 0xE6: "Alt", 0xE7: "GUI"
 };
-for (let i = 0; i < 24; i++) KEYLABELS[0x3A + i] = "F" + (i + 1);
+for (let i = 0; i < 12; i++) KEYLABELS[0x3A + i] = "F" + (i + 1);   // F1-F12
+for (let i = 0; i < 12; i++) KEYLABELS[0x68 + i] = "F" + (i + 13);  // F13-F24 (HID 0x68-0x73)
 
 const MOD_BITS = { CTL: 1, SFT: 2, ALT: 4, GUI: 8 };
 const modsHaveShift = m => !!(m & 0x02);
@@ -507,6 +511,7 @@ const KC_NAMES = {};
     KP_SLASH: 0x54, PSLS: 0x54, KP_ASTERISK: 0x55, PAST: 0x55,
     KP_MINUS: 0x56, PMNS: 0x56, KP_PLUS: 0x57, PPLS: 0x57,
     KP_ENTER: 0x58, PENT: 0x58, KP_DOT: 0x63, PDOT: 0x63,
+    KP_EQUAL: 0x67, PEQL: 0x67, KP_EQUAL_AS400: 0x86,
     APPLICATION: 0x65, APP: 0x65, NONUS_BSLASH: 0x64, NUBS: 0x64,
     LCTRL: 0xE0, LCTL: 0xE0, LEFT_CTRL: 0xE0, LSHIFT: 0xE1, LSFT: 0xE1,
     LEFT_SHIFT: 0xE1, LALT: 0xE2, LEFT_ALT: 0xE2, LOPT: 0xE2,
@@ -516,7 +521,8 @@ const KC_NAMES = {};
     RGUI: 0xE7, RCMD: 0xE7, RWIN: 0xE7, RIGHT_GUI: 0xE7
   };
   for (const [n, c] of Object.entries(alias)) KC_NAMES["KC_" + n] = c;
-  for (let i = 1; i <= 24; i++) KC_NAMES["KC_F" + i] = 0x3A + i - 1;
+  for (let i = 1; i <= 12; i++) KC_NAMES["KC_F" + i] = 0x3A + i - 1;   // F1-F12
+  for (let i = 13; i <= 24; i++) KC_NAMES["KC_F" + i] = 0x68 + i - 13; // F13-F24 (HID 0x68-0x73)
   for (let i = 1; i <= 9; i++) { KC_NAMES["KC_KP_" + i] = 0x58 + i; KC_NAMES["KC_P" + i] = 0x58 + i; }
   KC_NAMES["KC_KP_0"] = 0x62; KC_NAMES["KC_P0"] = 0x62;
 })();
@@ -747,6 +753,9 @@ function findKeyForChar(ch) {
       if (L > 0 && (raw.t === "trans" || raw.t === "none")) continue;
       const tap = tapOf(raw);
       if (!tap) continue;
+      // Ctrl/Alt/GUI付きのキーはショートカット(例: LSG(4)=Sft+GUI+4)であり、
+      // 文字($など)の入力手段ではないので候補から除外する
+      if (tap.mods & 0x0D) continue;
       const chars = HID_CHARS[tap.code];
       if (!chars) continue;
       let needShift = null;
@@ -785,12 +794,19 @@ function legendFor(k) {
     case "kc": {
       const ch = HID_CHARS[k.code];
       if (ch) {
+        // Shift以外の修飾(Ctrl/Alt/GUI)が付くキーはショートカット扱い:
+        // 全修飾(Shiftを含む) + シフト前のベースキー を表示する (例: LSG(3) -> Sft+GUI+3)
+        if (k.mods & 0x0D) {
+          const raw = ch[0];
+          const baseKey = raw === " " ? "Space" : raw === "\n" ? "⏎" : raw === "\t" ? "Tab"
+            : (/^[a-z]$/.test(raw) ? raw.toUpperCase() : raw);
+          return modsLabel(k.mods) + "+" + baseKey;
+        }
         const c = modsHaveShift(k.mods) ? ch[1] : ch[0];
         if (c === " ") return "Space";
         if (c === "\n") return "⏎";
         if (c === "\t") return "Tab";
-        const base = /^[a-z]$/.test(c) ? c.toUpperCase() : c;
-        return k.mods && !modsHaveShift(k.mods) ? modsLabel(k.mods) + "+" + base : base;
+        return /^[a-z]$/.test(c) ? c.toUpperCase() : c;
       }
       const lbl = KEYLABELS[k.code] || "0x" + k.code.toString(16);
       return k.mods ? modsLabel(k.mods) + "+" + lbl : lbl;
@@ -856,8 +872,13 @@ function updateLegends() {
     const k = KB.layers[viewLayer][r][c];
     const show = k.t === "trans" ? effKey(viewLayer, r, c) : k;
     const sub = shiftedSub(show);
+    const txt = legendFor(show);
     el.innerHTML = (sub ? '<span class="sub">' + escapeHtml(sub) + "</span>" : "") +
-      escapeHtml(legendFor(show)).replace(/\n/g, "<br>");
+      escapeHtml(txt).replace(/\n/g, "<br>");
+    // 長いラベル(例: Sft+GUI+3)はキーキャップに収まるようフォントを縮小
+    const maxLine = Math.max(...txt.split("\n").map(s => s.length), 0);
+    el.classList.toggle("xs", maxLine >= 8);
+    el.classList.toggle("sm", maxLine >= 5 && maxLine < 8);
     el.classList.toggle("dim", k.t === "trans" || k.t === "none");
   }
 }
@@ -912,7 +933,6 @@ function paintHint(hint) {
 /* ---------- 5. WebHID (Vial/VIA protocol) + .vil import ---------- */
 
 const CMD_GET_LAYER_COUNT = 0x11, CMD_GET_BUFFER = 0x12;
-let hidDevice = null;
 
 function hidCmd(dev, bytes) {
   const data = new Uint8Array(32);
@@ -937,20 +957,21 @@ function hidCmd(dev, bytes) {
 }
 
 async function connectHID() {
+  if (engine.running) engine.idle();          // reading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   if (!navigator.hid) {
     st.className = "err";
     st.textContent = "このブラウザはWebHID非対応です。Chrome/Edgeを使うか .vil を読み込んでください";
     return;
   }
+  let dev = null;
   try {
     const devs = await navigator.hid.requestDevice({
       filters: [{ usagePage: 0xFF60, usage: 0x61 }]
     });
     if (!devs.length) return;
-    const dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
+    dev = devs.find(d => d.collections.some(c => c.usagePage === 0xFF60)) || devs[0];
     if (!dev.opened) await dev.open();
-    hidDevice = dev;
     st.className = ""; st.textContent = "読み取り中…";
 
     let layerCount = 4;
@@ -984,10 +1005,15 @@ async function connectHID() {
   } catch (err) {
     st.className = "err";
     st.textContent = "読み取り失敗: " + err.message + "（USB接続を確認するか .vil を読み込んでください）";
+  } finally {
+    // release the raw-HID interface right away — only one app can hold it,
+    // and keeping it open blocks Vial from connecting to the keyboard
+    if (dev && dev.opened) { try { await dev.close(); } catch (e) {} }
   }
 }
 
 function loadVilText(text, name) {
+  if (engine.running) engine.idle();          // loading a keymap resets to the pre-start menu
   const st = document.getElementById("status");
   try {
     const data = JSON.parse(text);
@@ -1309,7 +1335,7 @@ const engine = {
     this.running = false;
     this.items = []; this.hint = null;
     clearHighlights();
-    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でやりなおし）</span>';
+    $("typeline").innerHTML = '<span class="rest" style="font-size:20px">▶ スタート（Space / Enter でも開始・プレイ中は ESC でこの画面に戻る）</span>';
     $("wordMeta").textContent = ""; $("queue").textContent = ""; $("hint").innerHTML = "";
     $("stTime").textContent = runSeconds.toFixed(1); $("stTime").classList.remove("low");
     $("stWpm").textContent = 0; $("stAcc").textContent = "100%";
@@ -1541,8 +1567,8 @@ function escapeHtml(s) {
 document.addEventListener("keydown", e => {
   if ($("resultDlg").open) return;            // Esc closes the dialog natively
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "Escape") {                   // Esc during a run = restart from scratch
-    if (engine.running) { e.preventDefault(); engine.start(); }
+  if (e.key === "Escape") {                   // Esc during a run = back to the pre-start menu
+    if (engine.running) { e.preventDefault(); engine.idle(); }
     return;
   }
   if (!engine.running) {                      // Space / Enter starts a run
@@ -1577,7 +1603,7 @@ document.querySelectorAll(".times button").forEach(b =>
   b.classList.toggle("active", +b.dataset.time === runSeconds));
 
 $("btnStart").addEventListener("click", () => engine.start());
-$("btnRestart").addEventListener("click", () => engine.start());
+$("btnRestart").addEventListener("click", () => engine.idle());
 $("btnAgain").addEventListener("click", () => { $("resultDlg").close(); engine.start(); });
 $("btnSound").addEventListener("click", () => {
   soundOn = !soundOn;
